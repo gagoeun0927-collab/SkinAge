@@ -1,0 +1,25 @@
+name: Deploy SkinAge API
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:  # 수동 트리거 가능
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to Gabia server
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            cd /opt/skinage/SkinAge
+            git pull origin master
+            docker compose -f docker-compose.prod.yml up -d --build api
+            docker restart skinage-nginx
+            echo "Waiting for API to be healthy..."
+            sleep 10
+            curl -sf http://localhost:8000/api/v1/health || echo "WARNING: health check failed"

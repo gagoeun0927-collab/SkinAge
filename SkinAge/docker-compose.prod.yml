@@ -1,6 +1,13 @@
 # =============================================================================
 # SkinAge — Production Docker Compose
 # =============================================================================
+# NOTE: This server also runs the "innerderma" project, whose nginx
+# (container "innerderma-frontend-1") already owns host ports 80/443 and
+# acts as the single reverse proxy for the whole server. SkinAge therefore
+# does NOT run its own nginx — it only publishes port 8000 on the host, and
+# innerderma's nginx (or the shared nginx config) is responsible for
+# proxying https://skinage-api.duckdns.org/ -> http://localhost:8000/.
+#
 # Usage:
 #   docker compose -f docker-compose.prod.yml up -d --build
 #   docker compose -f docker-compose.prod.yml logs -f api
@@ -16,8 +23,8 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: skinage-api
-    expose:
-      - "8000"
+    ports:
+      - "8001:8000"   # host 8001 to avoid clashing with other containers on 8000; shared nginx proxies here
     volumes:
       - ./outputs/models:/app/outputs/models:ro
     env_file:
@@ -25,8 +32,6 @@ services:
     environment:
       - SKINAGE_CONFIG_DIR=/app/config
       - SKINAGE_DEVICE=cpu
-    networks:
-      - skinage-net
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health')"]
@@ -34,27 +39,3 @@ services:
       timeout: 10s
       retries: 3
       start_period: 60s
-
-  # --------------------------------------------------------------------------
-  # Nginx — TLS termination & reverse proxy
-  # --------------------------------------------------------------------------
-  nginx:
-    image: nginx:alpine
-    container_name: skinage-nginx
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./deploy/nginx/active.conf:/etc/nginx/conf.d/default.conf:ro
-      - /etc/letsencrypt:/etc/letsencrypt:ro
-      - ./certbot-webroot:/var/www/certbot:ro
-    depends_on:
-      api:
-        condition: service_started
-    networks:
-      - skinage-net
-    restart: unless-stopped
-
-networks:
-  skinage-net:
-    driver: bridge

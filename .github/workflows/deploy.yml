@@ -16,10 +16,21 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
+            set -e
+
+            # 1. 소스 코드 업데이트 (실제 서비스 컨테이너가 이 경로를 build context로 참조함)
             cd /opt/skinage/SkinAge
+            git checkout -- . || true   # 서버에서 임시로 수정된 파일이 있으면 버림
             git pull origin master
-            docker compose -f docker-compose.prod.yml up -d --build api
-            docker restart skinage-nginx
+
+            # 2. 실제 서비스 컨테이너는 innerderma 스택의 nginx가 프록시하는
+            #    innerderma-skinage-1 이므로, 그 스택에서 skinage 서비스만 재빌드한다.
+            #    (/opt/innerderma/docker-compose.prod.yml 의 skinage 서비스가
+            #     context: /opt/skinage/SkinAge 를 그대로 참조함)
+            cd /opt/innerderma
+            docker compose -f docker-compose.prod.yml up -d --build skinage
+
             echo "Waiting for API to be healthy..."
             sleep 10
-            curl -sf http://localhost:8000/api/v1/health || echo "WARNING: health check failed"
+            docker exec innerderma-skinage-1 curl -sf http://localhost:8000/api/v1/health \
+              || echo "WARNING: health check failed"

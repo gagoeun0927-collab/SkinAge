@@ -75,17 +75,36 @@ import urllib.request
 _TASK_MODEL_PATH = _PROJECT_ROOT / "outputs" / "models" / "mediapipe" / "face_landmarker.task"
 _TASK_MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task"
 
+# Additional read-only search locations, tried before attempting a download.
+# In the Docker image the models are baked into /opt/mediapipe-models because
+# outputs/models is bind-mounted read-only in production, which makes both the
+# in-place download and even mkdir impossible.
+_TASK_MODEL_SEARCH_PATHS = (
+    _TASK_MODEL_PATH,
+    Path("/opt/mediapipe-models/face_landmarker.task"),
+)
+
 
 def _ensure_task_model() -> str:
-    """Ensure the MediaPipe Tasks face landmarker model is present, downloading if missing."""
-    if not _TASK_MODEL_PATH.is_file():
+    """Return a path to the MediaPipe Tasks face landmarker model.
+
+    Checks the known locations first and only falls back to downloading when
+    none of them contain the model. The download is best-effort: on a
+    read-only filesystem it fails and we return the default path so the caller
+    can surface a clear initialisation error.
+    """
+    for candidate in _TASK_MODEL_SEARCH_PATHS:
+        if candidate.is_file():
+            return str(candidate)
+
+    try:
         _TASK_MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            logger.info("Downloading face_landmarker.task from Google Storage...")
-            urllib.request.urlretrieve(_TASK_MODEL_URL, str(_TASK_MODEL_PATH))
-            logger.info("face_landmarker.task successfully downloaded.")
-        except Exception as exc:
-            logger.warning("Could not auto-download face_landmarker.task: %s", exc)
+        logger.info("Downloading face_landmarker.task from Google Storage...")
+        urllib.request.urlretrieve(_TASK_MODEL_URL, str(_TASK_MODEL_PATH))
+        logger.info("face_landmarker.task successfully downloaded.")
+    except Exception as exc:
+        logger.warning("Could not auto-download face_landmarker.task: %s", exc)
+
     return str(_TASK_MODEL_PATH)
 
 
@@ -247,8 +266,14 @@ def _get_tasks_landmarker():
                         min_face_presence_confidence=0.5,
                     )
                     _TASK_LANDMARKER_SINGLETON = FaceLandmarker.create_from_options(options)
+                    logger.info("Tasks FaceLandmarker initialised from %s", model_path)
                 except Exception as exc:
-                    logger.debug("Could not initialize Tasks FaceLandmarker: %s", exc)
+                    # Logged at WARNING (not DEBUG): if this fails and the
+                    # legacy Solutions API is also unavailable, every request
+                    # fails its quality checks with no other clue as to why.
+                    logger.warning(
+                        "Could not initialize Tasks FaceLandmarker: %s", exc, exc_info=True
+                    )
                     _TASK_LANDMARKER_SINGLETON = False
     return _TASK_LANDMARKER_SINGLETON if _TASK_LANDMARKER_SINGLETON is not False else None
 

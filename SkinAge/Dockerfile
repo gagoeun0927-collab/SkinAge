@@ -9,7 +9,7 @@ FROM python:3.11-slim
 #   OSError: libGLESv2.so.2: cannot open shared object file
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 \
-    libglesv2-2 \
+    libgles2 \
     libegl1 \
     libglib2.0-0 \
     libsm6 \

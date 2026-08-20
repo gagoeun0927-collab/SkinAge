@@ -117,63 +117,27 @@ def _thresholds_from_config(config: Optional[dict] = None) -> Dict[str, float]:
 
 
 # ---------------------------------------------------------------------------
-# MediaPipe Face Detection & Landmarks (Standard Solutions API)
+# MediaPipe Face Detection & Landmarks
 # ---------------------------------------------------------------------------
-
-def _get_mp_face_mesh():
-    from .face_alignment import _get_face_mesh
-    return _get_face_mesh()
-
+# Delegates to face_alignment.get_landmarks_robust, which already handles:
+#   - Solutions API (mp.solutions.face_mesh) when available
+#   - Tasks API (mp.tasks.vision.FaceLandmarker) fallback for mediapipe
+#     builds where mp.solutions was removed (e.g. Python 3.14+)
+#   - 0/90/180/270 deg rotation retries
+# This avoids duplicating (and diverging from) that fallback logic here.
 
 def _extract_landmarks_and_bbox(image: np.ndarray) -> Tuple[Optional[np.ndarray], Optional[Tuple[int, int, int, int]]]:
     """Extract (N, 2) pixel coordinates landmarks and (x, y, w, h) bounding box."""
     if image is None or image.size == 0:
         return None, None
 
+    from .face_alignment import get_landmarks_robust
+
     h, w = image.shape[:2]
-    rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-    mesh = _get_mp_face_mesh()
-    results = mesh.process(rgb)
+    _, lms = get_landmarks_robust(image)
 
-    if not results.multi_face_landmarks:
-        # Try with rotation checks
-        for angle in [90, 180, 270]:
-            if angle == 90:
-                rotated = cv2.rotate(rgb, cv2.ROTATE_90_CLOCKWISE)
-            elif angle == 180:
-                rotated = cv2.rotate(rgb, cv2.ROTATE_180)
-            else:
-                rotated = cv2.rotate(rgb, cv2.ROTATE_90_COUNTERCLOCKWISE)
-            res_rot = mesh.process(rotated)
-            if res_rot.multi_face_landmarks:
-                # Found on rotated; convert landmarks back to original
-                rot_lms = res_rot.multi_face_landmarks[0]
-                pts = []
-                rh, rw = rotated.shape[:2]
-                for lm in rot_lms.landmark:
-                    rx, ry = lm.x * rw, lm.y * rh
-                    if angle == 90:
-                        ox, oy = ry, w - 1 - rx
-                    elif angle == 180:
-                        ox, oy = w - 1 - rx, h - 1 - ry
-                    else:
-                        ox, oy = h - 1 - ry, rx
-                    pts.append([ox, oy])
-                lms_arr = np.array(pts, dtype=np.float32)
-                min_x = max(0, int(lms_arr[:, 0].min()))
-                min_y = max(0, int(lms_arr[:, 1].min()))
-                max_x = min(w, int(lms_arr[:, 0].max()))
-                max_y = min(h, int(lms_arr[:, 1].max()))
-                bbox = (min_x, min_y, max(1, max_x - min_x), max(1, max_y - min_y))
-                return lms_arr, bbox
+    if lms is None:
         return None, None
-
-    face_lms = results.multi_face_landmarks[0]
-    num_pts = min(len(face_lms.landmark), 468)
-    lms = np.array(
-        [[face_lms.landmark[i].x * w, face_lms.landmark[i].y * h] for i in range(num_pts)],
-        dtype=np.float32,
-    )
 
     min_x = max(0, int(lms[:, 0].min()))
     min_y = max(0, int(lms[:, 1].min()))

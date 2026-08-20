@@ -73,7 +73,7 @@ sudo ufw enable
 
 ```bash
 sudo mkdir -p /opt/skinage && sudo chown $USER:$USER /opt/skinage
-git clone https://github.com/arror1784/SkinAge.git /opt/skinage
+git clone https://github.com/gagoeun0927-collab/SkinAge.git /opt/skinage
 cd /opt/skinage/SkinAge
 ```
 
